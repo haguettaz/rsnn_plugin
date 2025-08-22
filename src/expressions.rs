@@ -92,10 +92,8 @@ fn first_ftime(inputs: &[Series]) -> PolarsResult<Series> {
         (Some(start), Some(len), Some(th)) => {
             let w0 = w0.unwrap_or(0.0);
             let w1 = w1.unwrap_or(0.0);
-            println!("w0={w0}, w1={w1}");
             c0 = w0 + (c0 + c1 * len) * (-len).exp();
             c1 = w1 + c1 * (-len).exp();
-            println!("c0={c0}, c1={c1}");
 
             let dt = {
                 if c0 < th {
