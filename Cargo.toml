@@ -1,0 +1,18 @@
+[package]
+name = "rsnn-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rsnn_plugin"
+crate-type= ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.25.0", features = ["extension-module", "abi3-py39"] }
+pyo3-polars = { version = "0.23.1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+polars = { version = "0.50.0", default-features = false }
+polars-arrow = { version = "0.50.0", default-features = false }
+lambert_w = "1.2.25"
+itertools = "0.14.0"
+
