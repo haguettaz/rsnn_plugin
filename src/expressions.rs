@@ -13,57 +13,55 @@ fn same_output_type(input_fields: &[Field]) -> PolarsResult<Field> {
 
 #[polars_expr(output_type_func=same_output_type)]
 fn scan_coef_0(inputs: &[Series]) -> PolarsResult<Series> {
-    let length = inputs[0].f64()?;
-    let coef_1 = inputs[1].f64()?;
+    let prev_delta = inputs[0].f64()?;
+    let prev_coef_1 = inputs[1].f64()?;
     let weight_0 = inputs[2].f64()?;
 
-    let out: Float64Chunked = izip!(weight_0.iter(), coef_1.iter(), length.iter())
-        .scan(
-            0_f64,
-            |state: &mut f64, (w0, c1, dt): (Option<f64>, Option<f64>, Option<f64>)| match (
-                w0, c1, dt,
-            ) {
-                (Some(w0), Some(c1), Some(dt)) => {
-                    *state = w0 + (*state + c1 * dt) * (-dt).exp();
+    let out: Float64Chunked = izip!(
+        prev_delta.iter(),
+        prev_coef_1.iter(),
+        weight_0.iter()
+    )
+    .scan(
+        0_f64,
+        |state: &mut f64,
+         (prev_delta, prev_coef_1, weight_0): (Option<f64>, Option<f64>, Option<f64>)| {
+            match prev_delta {
+                Some(prev_delta) => {
+                    *state = (*state + prev_coef_1.unwrap_or(0.0) * prev_delta)
+                        * (-prev_delta).exp()
+                        + weight_0.unwrap_or(0.0);
                     Some(Some(*state))
                 },
-                (Some(w0), None, None) => {
-                    *state = w0;
+                None => {
+                    *state = weight_0.unwrap_or(0.0);
                     Some(Some(*state))
                 },
-                (None, Some(c1), Some(dt)) => {
-                    *state = (*state + c1 * dt) * (-dt).exp();
-                    Some(Some(*state))
-                },
-                _ => Some(None),
-            },
-        )
-        .collect_trusted();
+            }
+        },
+    )
+    .collect_trusted();
+
     Ok(out.into_series())
 }
 
 #[polars_expr(output_type_func=same_output_type)]
 fn scan_coef_1(inputs: &[Series]) -> PolarsResult<Series> {
-    let length = inputs[0].f64()?;
+    let prev_delta = inputs[0].f64()?;
     let weight_1 = inputs[1].f64()?;
 
-    let out: Float64Chunked = izip!(weight_1.iter(), length.iter())
+    let out: Float64Chunked = izip!(prev_delta.iter(), weight_1.iter())
         .scan(
             0_f64,
-            |state: &mut f64, (w1, dt): (Option<f64>, Option<f64>)| match (w1, dt) {
-                (Some(w1), Some(dt)) => {
-                    *state = w1 + *state * (-dt).exp();
+            |state: &mut f64, (prev_delta, weight_1): (Option<f64>, Option<f64>)| match prev_delta {
+                Some(prev_delta) => {
+                    *state = *state * (-prev_delta).exp() + weight_1.unwrap_or(0.0);
                     Some(Some(*state))
                 },
-                (Some(w1), None) => {
-                    *state = w1;
+                None => {
+                    *state = weight_1.unwrap_or(0.0);
                     Some(Some(*state))
                 },
-                (None, Some(dt)) => {
-                    *state *= (-dt).exp();
-                    Some(Some(*state))
-                },
-                _ => Some(None),
             },
         )
         .collect_trusted();
@@ -73,49 +71,77 @@ fn scan_coef_1(inputs: &[Series]) -> PolarsResult<Series> {
 #[polars_expr(output_type=Float64)]
 fn first_ftime(inputs: &[Series]) -> PolarsResult<Series> {
     let start = inputs[0].f64()?;
-    let length = inputs[1].f64()?;
-    let f_thresh = inputs[2].f64()?;
+    let delta = inputs[1].f64()?;
+    let prev_delta = inputs[2].f64()?;
     let weight_0 = inputs[3].f64()?;
     let weight_1 = inputs[4].f64()?;
+    let f_thresh = inputs[5].f64()?;
 
-    let mut c0 = 0_f64;
-    let mut c1 = 0_f64;
+    let mut coef_0 = 0_f64;
+    let mut coef_1 = 0_f64;
 
     let ftime = izip!(
+        start.iter(),
+        delta.iter(),
+        prev_delta.iter(),
         weight_0.iter(),
         weight_1.iter(),
-        start.iter(),
-        length.iter(),
         f_thresh.iter(),
     )
-    .find_map(|(w0, w1, start, len, th)| match (start, len, th) {
-        (Some(start), Some(len), Some(th)) => {
-            let w0 = w0.unwrap_or(0.0);
-            let w1 = w1.unwrap_or(0.0);
-            c0 = w0 + (c0 + c1 * len) * (-len).exp();
-            c1 = w1 + c1 * (-len).exp();
+    .find_map(
+        |(start, delta, prev_delta, weight_0, weight_1, threshold)| match (start, threshold) {
+            (Some(start), Some(threshold)) => {
+                (coef_0, coef_1) = match prev_delta {
+                    Some(prev_delta) => {
+                        coef_0 = weight_0.unwrap_or(0.0)
+                            + (coef_0 + coef_1 * prev_delta) * (-prev_delta).exp();
+                        coef_1 = weight_1.unwrap_or(0.0) + coef_1 * (-prev_delta).exp();
+                        (coef_0, coef_1)
+                    },
+                    None => (weight_0.unwrap_or(0.0), weight_1.unwrap_or(0.0)),
+                };
 
-            let dt = {
-                if c0 < th {
-                    if c1 > 0.0 {
-                        -lambert_w0(-th / c1 * (-c0 / c1).exp()) - c0 / c1
-                    } else if c1 < 0.0 {
-                        -lambert_wm1(-th / c1 * (-c0 / c1).exp()) - c0 / c1
+                // println!(
+                //     "start: {start} prev_delta: {prev_delta:?} delta: {delta:?} coef_0: {coef_0}, coef_1: {coef_1}"
+                // );
+
+                let f_time = {
+                    if coef_0 < threshold {
+                        if coef_1 > 0.0 {
+                            start
+                                - lambert_w0(-threshold / coef_1 * (-coef_0 / coef_1).exp())
+                                - coef_0 / coef_1
+                        } else if coef_1 < 0.0 {
+                            start
+                                - lambert_wm1(-threshold / coef_1 * (-coef_0 / coef_1).exp())
+                                - coef_0 / coef_1
+                        } else {
+                            start + (coef_0 / threshold).ln()
+                        }
                     } else {
-                        (c0 / th).ln()
+                        start
                     }
-                } else {
-                    0.0
-                }
-            };
+                };
 
-            if (dt >= 0.0) && (dt < len) {
-                Some(start + dt)
-            } else {
-                None
-            }
+                match delta {
+                    Some(delta) => {
+                        if (f_time >= start) && (f_time < start + delta) {
+                            Some(f_time)
+                        } else {
+                            None
+                        }
+                    },
+                    None => {
+                        if f_time >= start {
+                            Some(f_time)
+                        } else {
+                            None
+                        }
+                    },
+                }
+            },
+            (None, _) | (_, None) => None,
         },
-        (None, _, _) | (_, None, _) | (_, _, None) => None,
-    });
+    );
     Ok(Series::new(PlSmallStr::EMPTY, vec![ftime]))
 }

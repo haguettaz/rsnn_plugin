@@ -15,14 +15,14 @@ LIB = Path(__file__).parent
 
 
 def scan_coef_0(
-    length: IntoExprColumn,
-    coef_1: IntoExprColumn,
+    prev_delta: IntoExprColumn,
+    prev_coef_1: IntoExprColumn,
     weight_0: IntoExprColumn,
 ) -> pl.Expr:
     return register_plugin_function(
         args=[
-            length,
-            coef_1,
+            prev_delta,
+            prev_coef_1,
             weight_0,
         ],
         plugin_path=LIB,
@@ -31,9 +31,9 @@ def scan_coef_0(
     )
 
 
-def scan_coef_1(length: IntoExprColumn, weight_1: IntoExprColumn) -> pl.Expr:
+def scan_coef_1(prev_delta: IntoExprColumn, weight_1: IntoExprColumn) -> pl.Expr:
     return register_plugin_function(
-        args=[length, weight_1],
+        args=[prev_delta, weight_1],
         plugin_path=LIB,
         function_name="scan_coef_1",
         is_elementwise=False,
@@ -42,13 +42,14 @@ def scan_coef_1(length: IntoExprColumn, weight_1: IntoExprColumn) -> pl.Expr:
 
 def first_ftime(
     start: IntoExprColumn,
-    length: IntoExprColumn,
-    f_thresh: IntoExprColumn,
+    delta: IntoExprColumn,
+    prev_delta: IntoExprColumn,
     weight_0: IntoExprColumn,
     weight_1: IntoExprColumn,
+    f_thresh: IntoExprColumn,
 ) -> pl.Expr:
     return register_plugin_function(
-        args=[start, length, f_thresh, weight_0, weight_1],
+        args=[start, delta, prev_delta, weight_0, weight_1, f_thresh],
         plugin_path=LIB,
         function_name="first_ftime",
         is_elementwise=False,
