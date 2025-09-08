@@ -76,24 +76,22 @@ fn scan_coef_1(inputs: &[Series]) -> PolarsResult<Series> {
 
 #[polars_expr(output_type=Float64)]
 fn energy_syn_to_syn_metric(inputs: &[Series]) -> PolarsResult<Series> {
-    let f_time = inputs[0].f64()?;
-    let start_syn_i = inputs[1].f64()?;
-    let start_syn_j = inputs[2].f64()?;
+    let delta = inputs[0].f64()?;
+    let duration = inputs[1].f64()?;
 
-    let out: Float64Chunked = izip!(f_time.iter(), start_syn_i.iter(), start_syn_j.iter())
-        .map(
-            |(f_time, start_syn_i, start_syn_j)| match (f_time, start_syn_i, start_syn_j) {
-                (Some(f_time), Some(start_syn_i), Some(start_syn_j)) => {
-                    let length = (f_time - start_syn_i).min(f_time - start_syn_j);
-                    let isi = (start_syn_j - start_syn_i).abs();
-                    let fading = (-2.0 * length).exp();
-                    let int_1 = 1.0 - (1.0 + 2.0 * length) * fading;
-                    let int_2 = 1.0 - (1.0 + 2.0 * length * (length + 1.0)) * fading;
-                    Some((int_2 + isi * int_1) * (-isi).exp() / 4.0)
-                },
-                _ => None,
-            },
-        )
+    let out: Float64Chunked = izip!(delta.iter(), duration.iter())
+        .map(|(delta, duration)| match (delta, duration) {
+            (Some(delta), Some(duration)) => Some(
+                (1.0 + delta.abs()
+                    - ((1.0 + 2.0 * duration * (1.0 + duration))
+                        + delta.abs() * (1.0 + 2.0 * duration))
+                        * (-2.0 * duration).exp())
+                    * (-delta.abs()).exp()
+                    / 4.0,
+            ),
+            (Some(delta), None) => Some((1.0 + delta.abs()) * (-delta.abs()).exp() / 4.0),
+            _ => None,
+        })
         .collect_trusted();
 
     Ok(out.into_series())
@@ -101,26 +99,18 @@ fn energy_syn_to_syn_metric(inputs: &[Series]) -> PolarsResult<Series> {
 
 #[polars_expr(output_type=Float64)]
 fn energy_rec_to_syn_metric(inputs: &[Series]) -> PolarsResult<Series> {
-    let f_time = inputs[0].f64()?;
-    let start_rec = inputs[1].f64()?;
-    let start_syn = inputs[2].f64()?;
+    let delta = inputs[0].f64()?;
+    let duration = inputs[1].f64()?;
 
-    let out: Float64Chunked = izip!(f_time.iter(), start_rec.iter(), start_syn.iter())
-        .map(
-            |(f_time, start_rec, start_syn)| match (f_time, start_rec, start_syn) {
-                (Some(f_time), Some(start_rec), Some(start_syn)) => {
-                    if start_syn > start_rec {
-                        let length = f_time - start_syn;
-                        let isi = start_syn - start_rec;
-                        let int_1 = 1.0 - (1.0 + 2.0 * length) * (-2.0 * length).exp();
-                        Some(int_1 * (-isi).exp() / 4.0)
-                    } else {
-                        Some(0.0)
-                    }
-                },
-                _ => None,
-            },
-        )
+    let out: Float64Chunked = izip!(delta.iter(), duration.iter())
+        .map(|(delta, duration)| match (delta, duration) {
+            (Some(delta), Some(duration)) => Some(
+                (1.0 - (1.0 + 2.0 * duration) * (-2.0 * duration).exp()) * (-delta.abs()).exp()
+                    / 4.0,
+            ),
+            (Some(delta), None) => Some((-delta.abs()).exp() / 4.0),
+            _ => None,
+        })
         .collect_trusted();
 
     Ok(out.into_series())

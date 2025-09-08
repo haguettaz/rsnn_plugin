@@ -40,12 +40,11 @@ def scan_coef_1(prev_length: IntoExprColumn, in_coef_1: IntoExprColumn) -> pl.Ex
     )
 
 
-def energy_syn_to_syn_metric(f_time, start_syn_i, start_syn_j) -> pl.Expr:
+def energy_syn_to_syn_metric(delta, duration) -> pl.Expr:
     return register_plugin_function(
         args=[
-            f_time,
-            start_syn_i,
-            start_syn_j,
+            delta,
+            duration,
         ],
         plugin_path=LIB,
         function_name="energy_syn_to_syn_metric",
@@ -53,12 +52,11 @@ def energy_syn_to_syn_metric(f_time, start_syn_i, start_syn_j) -> pl.Expr:
     )
 
 
-def energy_rec_to_syn_metric(f_time, start_rec, start_syn) -> pl.Expr:
+def energy_rec_to_syn_metric(delta, duration) -> pl.Expr:
     return register_plugin_function(
         args=[
-            f_time,
-            start_rec,
-            start_syn,
+            delta,
+            duration,
         ],
         plugin_path=LIB,
         function_name="energy_rec_to_syn_metric",
